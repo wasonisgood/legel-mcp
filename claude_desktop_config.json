@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "taiwan-law": {
+      "command": "python",
+      "args": ["C:/Users/user/code/legel-mcp/mcp_server_final.py"],
+      "env": {}
+    }
+  }
+}
