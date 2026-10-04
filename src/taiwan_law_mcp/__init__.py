@@ -9,7 +9,7 @@
 - 專門的法條代碼查詢功能
 """
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 __author__ = "Law MCP Developer"
 
 from .server import main
