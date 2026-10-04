@@ -5,11 +5,13 @@
 """
 
 import re
+import ssl
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin, urlparse, parse_qs, urlencode
 
 import requests
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter
 
 
 # === 基礎設定 ===
@@ -19,6 +21,30 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Referer": BASE,
 }
+
+
+class _MojTLSAdapter(HTTPAdapter):
+    """
+    Python 3.13+ 預設啟用 VERIFY_X509_STRICT，而 law.moj.gov.tw 的憑證鏈
+    缺少 Subject Key Identifier，會被拒絕。此處僅關閉該嚴格旗標，
+    憑證與主機名稱驗證仍照常進行。
+    """
+
+    def init_poolmanager(self, *args, **kwargs):
+        ctx = ssl.create_default_context()
+        ctx.verify_flags &= ~getattr(ssl, "VERIFY_X509_STRICT", 0)
+        kwargs["ssl_context"] = ctx
+        return super().init_poolmanager(*args, **kwargs)
+
+
+def _new_session() -> requests.Session:
+    """建立可連線至法務部網站的 Session"""
+    sess = requests.Session()
+    sess.mount("https://", _MojTLSAdapter())
+    return sess
+
+
+_http = _new_session()
 
 
 def _pick_parser():
@@ -41,7 +67,7 @@ class LawClient:
             timeout: 請求超時時間（秒）
         """
         self.timeout = timeout
-        self.session = requests.Session()
+        self.session = _new_session()
         self.session.headers.update(HEADERS)
 
     def __enter__(self):
@@ -190,7 +216,7 @@ def _parse_search_results(html: str, keyword: str) -> Dict[str, Any]:
 
 def search_law_by_name(keyword: str, max_suggestions: int = 5) -> Dict[str, Any]:
     """根據法規名稱搜尋（參數化建議數量）"""
-    with requests.Session() as sess:
+    with _new_session() as sess:
         sess.headers.update(HEADERS)
         asp_state = _get_home_and_state(sess)
         results_html = _post_search(sess, keyword, asp_state)
@@ -221,7 +247,7 @@ def validate_pcode(pcode: str) -> bool:
     """驗證法規代碼是否有效"""
     try:
         url = f"https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode={pcode}"
-        r = requests.head(url, headers=HEADERS, timeout=10)
+        r = _http.head(url, headers=HEADERS, timeout=10)
         return r.status_code == 200
     except Exception:
         return False
@@ -230,7 +256,7 @@ def validate_pcode(pcode: str) -> bool:
 def fetch_law_by_pcode(pcode: str) -> str:
     """根據pcode取得完整法規HTML"""
     url = f"https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode={pcode}"
-    r = requests.get(url, headers=HEADERS, timeout=20)
+    r = _http.get(url, headers=HEADERS, timeout=20)
     r.raise_for_status()
     return r.text
 
@@ -359,7 +385,7 @@ def fetch_single_article(pcode: str, flno: str) -> str:
     """取得單條條文HTML"""
     params = {"pcode": pcode.strip(), "flno": flno.strip()}
     url = f"https://law.moj.gov.tw/LawClass/LawSingle.aspx?{urlencode(params, safe='-')}"
-    r = requests.get(url, headers=HEADERS, timeout=20)
+    r = _http.get(url, headers=HEADERS, timeout=20)
     r.raise_for_status()
     return r.text
 
@@ -409,7 +435,7 @@ def keyword_search(keyword: str, max_results: int = 10, summary_only: bool = Tru
 
     try:
         # 取得搜尋結果列表
-        r = requests.get(list_url, headers=HEADERS, timeout=25)
+        r = _http.get(list_url, headers=HEADERS, timeout=25)
         r.raise_for_status()
         soup = BeautifulSoup(r.text, _pick_parser())
 
@@ -439,7 +465,7 @@ def keyword_search(keyword: str, max_results: int = 10, summary_only: bool = Tru
             content_url = f"{BASE}LawClass/LawSearchContent.aspx?pcode={pcode}&kw={keyword}"
 
             try:
-                r = requests.get(content_url, headers=HEADERS, timeout=25)
+                r = _http.get(content_url, headers=HEADERS, timeout=25)
                 r.raise_for_status()
                 soup = BeautifulSoup(r.text, _pick_parser())
 

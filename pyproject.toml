@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "taiwan-law-mcp"
-version = "0.2.2"
+version = "0.2.3"
 description = "台灣法規查詢 MCP 伺服器 - 優化版本"
 readme = "README.md"
 license = "MIT"
